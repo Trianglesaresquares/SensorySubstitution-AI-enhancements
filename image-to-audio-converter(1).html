@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image to Sound Converter</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .control-section {
+            background-color: white;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .canvas-container {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+        }
+        canvas {
+            border: 1px solid #ddd;
+            background-color: #eee;
+        }
+        .slider-container {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .slider-container label {
+            flex: 1;
+            margin-right: 10px;
+        }
+        .slider-container input {
+            flex: 2;
+        }
+        .slider-container span {
+            margin-left: 10px;
+            width: 50px;
+        }
+        #decodeMessage {
+            font-weight: bold;
+            color: #555;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Image to Sound Converter</h1>
+
+    <div class="control-section">
+        <h2>Camera Controls</h2>
+        <div class="button-group">
+            <button id="startButton">Start Camera</button>
+            <button id="switchCameraButton">Switch Camera</button>
+        </div>
+        <p id="activeCamera">Current Camera: Back</p>
+    </div>
+
+    <div class="control-section">
+        <h2>Scanning Method</h2>
+        <select id="scanMethod">
+            <option value="pixel">Pixel-by-Pixel</option>
+            <option value="row">Row-by-Row</option>
+        </select>
+    </div>
+
+    <div class="control-section">
+        <h2>Audio Parameters</h2>
+        <div class="slider-container">
+            <label for="highFreqPulseDurationSlider">High Frequency Pulse Duration (µs):</label>
+            <input type="range" id="highFreqPulseDurationSlider" min="20" max="300" value="30" step="1">
+            <span id="highFreqPulseDurationValue">30</span> µs
+        </div>
+        <div class="slider-container">
+            <label for="lowFreqPulseDurationSlider">Low Frequency Pulse Duration (µs):</label>
+            <input type="range" id="lowFreqPulseDurationSlider" min="20" max="200" value="25" step="1">
+            <span id="lowFreqPulseDurationValue">25</span> µs
+        </div>
+    </div>
+
+    <div class="control-section">
+        <h2>Image Processing</h2>
+        <div class="slider-container">
+            <label for="resolutionSlider">Resolution:</label>
+            <input type="range" id="resolutionSlider" min="50" max="350" value="150" step="50">
+            <span id="resolutionValue">150x150</span>
+        </div>
+        <div class="slider-container">
+            <label for="edgeThresholdSlider">Edge Threshold:</label>
+            <input type="range" id="edgeThresholdSlider" min="60" max="100" value="72" step="1">
+            <span id="edgeThresholdValue">72</span>
+        </div>
+    </div>
+
+    <div class="canvas-container">
+        <div>
+            <h3>Captured Image</h3>
+            <canvas id="previewCanvas" width="350" height="350"></canvas>
+            <img id="imagePreview" src="" alt="Captured Image Preview" />
+        </div>
+        <div>
+            <h3>Depth Visualization</h3>
+            <canvas id="decodedCanvas" width="350" height="350"></canvas>
+        </div>
+    </div>
+
+    <div class="control-section">
+        <h2>Audio Controls</h2>
+        <div class="button-group">
+            <button id="captureButton" disabled>Start Captures</button>
+            <button id="decodeButton">Decode Audio to Image</button>
+        </div>
+        <audio id="audioPlayer" controls style="width: 100%; margin-top: 10px;"></audio>
+        <p id="decodeMessage"></p>
+    </div>
+
+    <script>
+        class ImageSoundConverter {
+            constructor() {
+                this.initializeElements();
+                this.setupEventListeners();
+                this.initializeAudioContext();
+            }
+
+            initializeElements() {
+                this.elements = {
+                    startButton: document.getElementById('startButton'),
+                    switchCameraButton: document.getElementById('switchCameraButton'),
+                    captureButton: document.getElementById('captureButton'),
+                    decodeButton: document.getElementById('decodeButton'),
+                    audioPlayer: document.getElementById('audioPlayer'),
+                    previewCanvas: document.getElementById('previewCanvas'),
+                    decodedCanvas: document.getElementById('decodedCanvas'),
+                    imagePreview: document.getElementById('imagePreview'),
+                    decodeMessage: document.getElementById('decodeMessage'),
+                    activeCameraLabel: document.getElementById('activeCamera'),
+                    scanMethod: document.getElementById('scanMethod'),
+                    sliders: {
+                        highFreqPulse: document.getElementById('highFreqPulseDurationSlider'),
+                        lowFreqPulse: document.getElementById('lowFreqPulseDurationSlider'),
+                        resolution: document.getElementById('resolutionSlider'),
+                        edgeThreshold: document.getElementById('edgeThresholdSlider')
+                    },
+                    sliderValues: {
+                        highFreqPulse: document.getElementById('highFreqPulseDurationValue'),
+                        lowFreqPulse: document.getElementById('lowFreqPulseDurationValue'),
+                        resolution: document.getElementById('resolutionValue'),
+                        edgeThreshold: document.getElementById('edgeThresholdValue')
+                    }
+                };
+
+                this.videoElement = document.createElement('video');
+                this.currentCamera = 'environment';
+                this.cameraOn = false;
+                this.captureInProgress = false;
+            }
+
+            setupEventListeners() {
+                this.elements.startButton.addEventListener('click', () => this.toggleCamera());
+                this.elements.switchCameraButton.addEventListener('click', () => this.switchCamera());
+                this.elements.captureButton.addEventListener('click', () => this.startCaptures());
+                this.elements.decodeButton.addEventListener('click', () => this.decodeAudio());
+
+                Object.keys(this.elements.sliders).forEach(key => {
+                    this.elements.sliders[key].addEventListener('input', () => this.updateSliderValues());
+                });
+
+                this.elements.audioPlayer.addEventListener('ended', () => {
+                    if (this.captureInProgress) {
+                        this.captureImage();
+                    }
+                });
+
+                this.updateSliderValues();
+            }
+
+            initializeAudioContext() {
+                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+
+            updateSliderValues() {
+                const updateValue = (slider, valueDisplay) => {
+                    const value = this.elements.sliders[slider].value;
+                    this.elements.sliderValues[valueDisplay].innerText = value;
+                };
+
+                updateValue('highFreqPulse', 'highFreqPulse');
+                updateValue('lowFreqPulse', 'lowFreqPulse');
+                
+                const resolution = this.elements.sliders.resolution.value;
+                this.elements.sliderValues.resolution.innerText = `${resolution}x${resolution}`;
+                this.updateCanvasDimensions(resolution);
+
+                updateValue('edgeThreshold', 'edgeThreshold');
+            }
+
+            updateCanvasDimensions(resolution) {
+                this.elements.previewCanvas.width = resolution;
+                this.elements.previewCanvas.height = resolution;
+                this.elements.decodedCanvas.width = resolution;
+                this.elements.decodedCanvas.height = resolution;
+            }
+
+            toggleCamera() {
+                if (this.cameraOn) {
+                    this.stopCamera();
+                    this.elements.startButton.innerText = 'Start Camera';
+                    this.elements.captureButton.disabled = true;
+                } else {
+                    this.startCamera();
+                    this.elements.startButton.innerText = 'Stop Camera';
+                    this.elements.captureButton.disabled = false;
+                }
+            }
+
+            switchCamera() {
+                this.currentCamera = this.currentCamera === 'environment' ? 'user' : 'environment';
+                this.elements.activeCameraLabel.innerText = `Current Camera: ${this.currentCamera === 'environment' ? 'Back' : 'Front'}`;
+                
+                if (this.cameraOn) {
+                    this.stopCamera();
+                    this.startCamera();
+                }
+            }
+
+            startCamera() {
+                const constraints = {
+                    video: { facingMode: { exact: this.currentCamera } }
+                };
+                
+                navigator.mediaDevices.getUserMedia(constraints)
+                    .then(stream => {
+                        this.videoStream = stream;
+                        this.videoElement.srcObject = stream;
+                        this.videoElement.play();
+                        this.cameraOn = true;
+                    })
+                    .catch(err => {
+                        console.error('Error accessing camera:', err);
+                        alert('Could not access camera. Please check permissions.');
+                    });
+            }
+
+            stopCamera() {
+                if (this.videoStream) {
+                    this.videoStream.getTracks().forEach(track => track.stop());
+                    this.cameraOn = false;
+                }
+            }
+
+            startCaptures() {
+                if (this.captureInProgress) return;
+                this.captureInProgress = true;
+                this.captureImage();
+            }
+
+            captureImage() {
+                const ctx = this.elements.previewCanvas.getContext('2d');
+                ctx.drawImage(this.videoElement, 0, 0, this.elements.previewCanvas.width, this.elements.previewCanvas.height);
+
+                const imageData = ctx.getImageData(0, 0, this.elements.previewCanvas.width, this.elements.previewCanvas.height);
+                const imageURL = this.elements.previewCanvas.toDataURL();
+
+                this.elements.imagePreview.src = imageURL;
+
+                const { grayscale, depth } = this.convertToGrayscaleAndDepth(imageData);
+                this.visualizeDepth(depth);
+                this.generateAudio(grayscale, depth);
+            }
+
+            convertToGrayscaleAndDepth(imageData) {
+                const pixels = imageData.data;
+                const grayscale = [];
+                const depth = [];
+
+                for (let i = 0; i < pixels.length; i += 4) {
+                    const r = pixels[i] / 255;
+                    const g = pixels[i + 1] / 255;
+                    const b = pixels[i + 2] / 255;
+                    const alpha = pixels[i + 3] / 255;
+
+                    if (alpha > 0) {
+                        const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+                        grayscale.push(gray);
+
+                        const maxRGB = Math.max(r, g, b);
+                        const minRGB = Math.min(r, g, b);
+                        const saturation = maxRGB - minRGB;
+
+                        const depthValue = (1 - gray) * 0.5 + (1 - saturation) * 0.5;
+                        depth.push(depthValue);
+                    } else {
+                        grayscale.push(0);
+                        depth.push(0);
+                    }
+                }
+
+                return { grayscale, depth };
+            }
+
+            visualizeDepth(depth) {
+                const ctx = this.elements.decodedCanvas.getContext('2d');
+                const imageData = ctx.createImageData(this.elements.decodedCanvas.width, this.elements.decodedCanvas.height);
+
+                for (let i = 0; i < depth.length; i++) {
+                    const depthValue = depth[i];
+                    const grayValue = Math.floor(depthValue * 255);
+
+                    const idx = i * 4;
+                    imageData.data[idx] = grayValue;
+                    imageData.data[idx + 1] = grayValue;
+                    imageData.data[idx + 2] = grayValue;
+                    imageData.data[idx + 3] = 255;
+                }
+
+                ctx.putImageData(imageData, 0, 0);
+            }
+
+            generateAudio(grayscale, depth) {
+                const sampleRate = this.audioContext.sampleRate;
+                const highFreqPulseDuration = parseFloat(this.elements.sliders.highFreqPulse.value) / 1_000_000;
+                const lowFreqPulseDuration = parseFloat(this.elements.sliders.lowFreqPulse.value) / 1_000_000;
+
+                const maxPulseDuration = Math.max(highFreqPulseDuration, lowFreqPulseDuration);
+                const maxPulseSamples = Math.ceil(maxPulseDuration * sampleRate);
+
+                const scanMethod = this.elements.scanMethod.value;
+                const totalSamples = grayscale.length * maxPulseSamples;
+                const buffer = this.audioContext.createBuffer(1, totalSamples, sampleRate);
+                const channel = buffer.getChannelData(0);
+        
+                let currentSample = 0;
+
+                if (scanMethod === 'row') {
+                    const canvasWidth = Math.sqrt(grayscale.length);
+                    const canvasHeight = canvasWidth;
+
+                    for (let row = 0; row < canvasHeight; row++) {
+                        for (let col = 0; col < canvasWidth; col++) {
+                            const pixelIndex = row * canvasWidth + col;
+                            const pixelValue = grayscale[pixelIndex];
+                            const frequency = 50 + pixelValue * (15000 - 50);
+
+                            const amplitude = 1 - depth[pixelIndex];
+
+                            const pulseDuration =
+                                frequency >= (50 + 15000) / 2 ? highFreqPulseDuration : lowFreqPulseDuration;
+                            const pulseSamples = Math.ceil(pulseDuration * sampleRate);
+
+                            for (let j = 0; j < pulseSamples && currentSample < channel.length; j++) {
+                                channel[currentSample++] = amplitude;
+                            }
+
+                            const remainingSamples = maxPulseSamples - pulseSamples;
+                            for (let j = 0; j < remainingSamples && currentSample < channel.length; j++) {
+                                channel[currentSample++] = 0;
+                            }
+                        }
+                    }
+                } else {
+                    for (let i = 0; i < grayscale.length; i++) {
+                        const pixelValue = grayscale[i];
+                        const frequency = 50 + pixelValue * (15000 - 50);
+
+                        const amplitude = 1 - depth[i];
+
+                        const pulseDuration =
+                            frequency >= (50 + 15000) / 2 ? highFreqPulseDuration : lowFreqPulseDuration;
+                        const pulseSamples = Math.ceil(pulseDuration * sampleRate);
+
+                        for (let j = 0; j < pulseSamples && currentSample < channel.length; j++) {
+                            channel[currentSample++] = amplitude;
+                        }
+
+                        const remainingSamples = maxPulseSamples - pulseSamples;
+                        for (let j = 0; j < remainingSamples && currentSample < channel.length; j++) {
+                            channel[currentSample++] = 0;
+                        }
+                    }
+                }
+
+                const maxAmplitude = Math.max(...channel.map(Math.abs));
+                if (maxAmplitude > 0) {
+                    for (let i = 0; i < channel.length; i++) {
+                        channel[i] /= maxAmplitude;
+                    }
+                }
+
+                const wavBlob = this.bufferToWave(buffer, totalSamples);
+
+                this.elements.audioPlayer.src = URL.createObjectURL(wavBlob);
+                this.elements.audioPlayer.play().catch((err) => {
+                    console.error("Audio play error:", err);
+                });
+            }
+
+            bufferToWave(buffer, totalSamples) {
+                const wavArray = new Uint8Array(44 + totalSamples * 2);
+                const view = new DataView(wavArray.buffer);
+                this.writeString(view, 0, 'RIFF');
+                view.setUint32(4, 36 + totalSamples * 2, true);
+                this.writeString(view, 8, 'WAVE');
+                this.writeString(view, 12, 'fmt ');
+                view.setUint32(16, 16, true);
+                view.setUint16(20, 1, true);
+                view.setUint16(22, 1, true);
+                view.setUint32(24, this.audioContext.sampleRate, true);
+                view.setUint32(28, this.audioContext.sampleRate * 2, true);
+                view.setUint16(32, 2, true);
+                view.setUint16(34, 16, true);
+                this.writeString(view, 36, 'data');
+                view.setUint32(40, totalSamples * 2, true);
+
+                let offset = 44;
+                const channelData = buffer.getChannelData(0);
+                for (let i = 0; i < totalSamples; i++) {
+                    view.setInt16(offset, channelData[i] * 32767, true);
+                    offset += 2;
+                }
+                return new Blob([wavArray], { type: 'audio/wav' });
+            }
+
+            writeString(view, offset, string) {
+                for (let i = 0; i < string.length; i++) {
+                    view.setUint8(offset + i, string.charCodeAt(i));
+                }
+            }
+
+            async decodeAudio() {
+                const decodeMessage = this.elements.decodeMessage;
+                const decodedCanvas = this.elements.decodedCanvas;
+                const ctx = decodedCanvas.getContext('2d');
+
+                decodeMessage.innerText = 'Decoding audio...';
+
+                const audioSrc = this.elements.audioPlayer.src;
+                if (!audioSrc) {
+                    decodeMessage.innerText = 'No audio to decode!';
+                    return;
+                }
+
+                try {
+                    const response = await fetch(audioSrc);
+                    const audioData = await response.arrayBuffer();
+                    const audioBuffer = await this.audioContext.decodeAudioData(audioData);
+
+                    const channelData = audioBuffer.getChannelData(0);
+                    const totalSamples = channelData.length;
+                    const grayscale = [];
+                    const pixelsPerSample = Math.floor(totalSamples / (decodedCanvas.width * decodedCanvas.height));
+
+                    for (let i = 0; i < channelData.length; i += pixelsPerSample) {
+                        const average = channelData.slice(i, i + pixelsPerSample).reduce((a, b) => a + Math.abs(b), 0) / pixelsPerSample;
+                        const grayValue = Math.min(255, Math.floor(average * 255));
+                        grayscale.push(grayValue);
+                    }
+
+                    const imageData = ctx.createImageData(decodedCanvas.width, decodedCanvas.height);
+                    for (let i = 0; i < grayscale.length; i++) {
+                        const grayValue = grayscale[i];
+                        const idx = i * 4;
+                        imageData.data[idx] = grayValue;
+                        imageData.data[idx + 1] = grayValue;
+                        imageData.data[idx + 2] = grayValue;
+                        imageData.data[idx + 3] = 255;
+                    }
+                    ctx.putImageData(imageData, 0, 0);
+
+                    decodeMessage.innerText = 'Decoding complete! Image reconstructed.';
+                } catch (error) {
+                    console.error('Error decoding audio:', error);
+                    decodeMessage.innerText = 'Error decoding audio.';
+                }
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            new ImageSoundConverter();
+        });
+    </script>
+</body>
+</html>
